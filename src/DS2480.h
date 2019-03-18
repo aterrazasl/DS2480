@@ -52,26 +52,11 @@ typedef struct {
 } scratchPad;
 
 
-
-/*
-BYTE 0
-BYTE 1
-TEMPERATURE LSB (AAh)
-TEMPERATURE MSB (00h) (85°C)
-BYTE 2
-BYTE 3
-TH REGISTER OR USER BYTE 1*
-TL REGISTER OR USER BYTE 2*
-BYTE 4
-BYTE 5
-RESERVED (FFh)
-RESERVED (FFh)
-BYTE 6
-BYTE 7
-COUNT REMAIN (0Ch)
-COUNT PER °C (10h)
-BYTE 8 CRC*
- */
+int readConfig(int fd);
+int readROMcmd(int fd, unsigned char * data);
+int startTempConv(int fd, unsigned char * address);
+double calculateTemp(scratchPad *dataPad);
+int readScratchPAD(int fd, unsigned char * address, unsigned char * data);
 
 
 #endif /* DS2480_H_ */
