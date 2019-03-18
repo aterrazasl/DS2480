@@ -9,6 +9,9 @@
 #define DS2480_H_
 
 
+#define FALSE 0
+#define TRUE 1
+
 //Parameter codes
 #define PDSRC 	0x03
 #define PPD 	0x05
@@ -18,7 +21,7 @@
 #define LOAD	0x0d
 #define RBR		0x0f
 
-//Base ROM commands
+//DS2480 ROM commands
 #define RESET		0xc1
 #define DATA_MODE	0xe1
 #define CMD_MODE	0xe3
@@ -29,7 +32,7 @@
 #define ALARMSEARCH	0xec
 #define SKIPROM		0xcc
 
-//DS2480 commands
+//DS18S20 commands
 #define CONV_TEMP		0x44
 #define COPY_SCRATCHPAD	0X48
 #define WR_SCRATCHPAD	0x4E
@@ -57,6 +60,7 @@ int readROMcmd(int fd, unsigned char * data);
 int startTempConv(int fd, unsigned char * address);
 double calculateTemp(scratchPad *dataPad);
 int readScratchPAD(int fd, unsigned char * address, unsigned char * data);
+int findDevices(int fd);
 
 
 #endif /* DS2480_H_ */

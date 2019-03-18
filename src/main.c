@@ -40,6 +40,10 @@ int main(void)
 	}
 
 
+//	findDevices(fd);
+
+
+
 	readConfig(fd);
 
 	if(readROMcmd(fd,ROMaddress))
