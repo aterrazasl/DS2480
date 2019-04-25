@@ -8,6 +8,9 @@
 #ifndef DS2480_H_
 #define DS2480_H_
 
+#define MAX_DEVICES 64		//Maximum number of devices monitored
+#define ROM_ADDRESS_SIZE 8
+
 
 #define FALSE 0
 #define TRUE 1
@@ -54,13 +57,18 @@ typedef struct {
 	unsigned char CRC;
 } scratchPad;
 
+char devicesFound;
 
+int sendReset(int fd);
 int readConfig(int fd);
 int readROMcmd(int fd, unsigned char * data);
 int startTempConv(int fd, unsigned char * address);
 double calculateTemp(scratchPad *dataPad);
 int readScratchPAD(int fd, unsigned char * address, unsigned char * data);
-int findDevices(int fd);
+int findDevices(int fd, unsigned char * newAddr);
+void reset_search(void);
+int printMultipleTemp(int fd, unsigned char * ROMaddress, char devices, double *temperatures);
+int logTemperatures(double * temperatures, char devices);
 
 
 #endif /* DS2480_H_ */

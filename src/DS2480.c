@@ -14,6 +14,8 @@
 #include <errno.h>
 #include <unistd.h>
 #include <string.h>
+#include <time.h>
+
 
 
 //Calculate the CRC
@@ -24,7 +26,8 @@ int calculateCRC(unsigned char * addr, unsigned int len)
 
 	while (len--) {
 		unsigned char inbyte = *addr++;
-		for (unsigned char i = 8; i; i--) {
+		unsigned char i;
+		for ( i = 8; i; i--) {
 			unsigned char mix = (crc ^ inbyte) & 0x01;
 			crc >>= 1;
 			if (mix) crc ^= 0x8C;
@@ -40,7 +43,6 @@ int writeData(int fd, unsigned char data)
 	if(write(fd, &data,1) < 0){
 		printf("error %d Writing: %s\n\n", errno, strerror (errno));
 	}
-//	printf("sent = 0x%02x, %s\n",data,"write complete");
 
 	usleep(10 * 1000);
 	return 0;
@@ -54,7 +56,6 @@ unsigned char readData(int fd)//, unsgned char * data)
 	if(read(fd, &data,1) < 0){
 		printf("error %d Reading: %s\n\n", errno, strerror (errno));
 	}
-//	printf("-- Read = 0x%02x, %s\n", data[0],"read complete");
 
 	return data[0];
 }
@@ -101,7 +102,6 @@ int readROMcmd(int fd, unsigned char * data)
 	}
 	printf("%s\n","");
 	crc = calculateCRC(data,8);
-//	printf("CRC = 0x%02x\n",crc);
 
 	writeData(fd,CMD_MODE);	//comes back into command mode
 	sendReset(fd);
@@ -126,9 +126,6 @@ int matchROMcmd(int fd, unsigned char * data)
 		sendCommand(fd,data[i]);	// send rom address
 	}
 
-//	writeData(fd,CMD_MODE);	//comes back into command mode
-//	sendReset(fd);
-
 	return 0;
 
 }
@@ -142,16 +139,12 @@ int readScratchPAD(int fd, unsigned char * address, unsigned char * data){
 
 	sendCommand(fd,RD_SCRATCHPAD);	//Read ROM command
 
-//	printf("%s","Scratch pad data = 0x");
 	for(i=0; i < SCRATCH_PAD_SIZE ;i++)
 	{
 		data[i] = sendCommand(fd,DUMMY);	// Send dummy byte to retreive data
-//		printf("%02X",data[i]);
 	}
-//	printf("%s\n","");
 
 	crc = calculateCRC(data,9);
-//	printf("CRC = 0x%02x\n",crc);
 
 	writeData(fd,CMD_MODE);	//comes back into command mode
 	sendReset(fd);
@@ -166,13 +159,10 @@ int readScratchPAD(int fd, unsigned char * address, unsigned char * data){
 //Returns to CMD mode and send reset pulse
 int startTempConv(int fd, unsigned char * address){
 
-	printf("%s","---- Start temperature conversion ----\n");
+	//	printf("%s","---- Start temperature conversion ----\n");
 
 	matchROMcmd(fd, address);
-
 	sendCommand(fd,CONV_TEMP);
-
-	sleep(1);
 	writeData(fd,CMD_MODE);	//comes back into command mode
 	sendReset(fd);
 
@@ -201,7 +191,7 @@ int readConfig(int fd)
 //Returns the value in Celsius
 double calculateTemp(scratchPad *dataPad)
 {
-	double temp=0.0;
+	double temp = 0.0;
 
 	unsigned short helper=0;
 
@@ -209,15 +199,19 @@ double calculateTemp(scratchPad *dataPad)
 	helper = helper << 8;
 	helper = helper | dataPad->tempLSB;
 
-	helper = helper >> 1;
+	helper = helper >> 4;
 
-	temp = (double)helper + ( (dataPad->tempLSB & 0x0001) * 0.25 );
+	temp = (double)helper;
 
-	temp = temp - 0.25 + ( ((double)(dataPad->countPerC - dataPad->countRemain) ) / ( (double) dataPad->countPerC) );
+	temp = temp + (double)( ((dataPad->tempLSB & 0b00000001) >> 0 )* 0.0625);
+	temp = temp + (double)( ((dataPad->tempLSB & 0b00000010) >> 1 )* 0.125 );
+	temp = temp + (double)( ((dataPad->tempLSB & 0b00000100) >> 2 )* 0.250 );
+	temp = temp + (double)( ((dataPad->tempLSB & 0b00001000) >> 3 )* 0.500 );
+
+	//temp = temp - 0.25 + ( ((double)(dataPad->countPerC - dataPad->countRemain) ) / ( (double) dataPad->countPerC) );
 
 	return temp;
 }
-
 
 // Write a bit - actually returns the bit read back in case you care.
 //
@@ -225,10 +219,14 @@ unsigned char write_bit(int fd, unsigned char v)
 {
 	unsigned char val;
 	//commandMode();
+	//	writeData(fd,CMD_MODE);	//enter in Data mode
+
 	if (v == 1) writeData(fd, 0x91); //port.write(0x91); //write a single "on" bit to onewire
 	else writeData(fd, 0x81); //port.write(0x81); //write a single "off" bit to onewire
 	//if (!waitForReply()) return 0;
+	//	usleep(10 * 1000);
 	val = readData(fd);
+	//	printf("Single bit operation results W = %02x, R = %02x\n",v,val);
 	return val & 1;
 }
 
@@ -241,19 +239,35 @@ unsigned char read_bit(int fd)
 	return r;
 }
 
+char LastDeviceFlag = 0;
+char LastDiscrepancy=0;
+char LastFamilyDiscrepancy=0;
+unsigned char id_bit, cmp_id_bit;
+unsigned char ROM_NO[100];
+//unsigned char newAddr[100];
+
+void reset_search(void)
+{
+	// reset the search state
+	devicesFound = 0;
+	LastDiscrepancy = 0;
+	LastDeviceFlag = FALSE;
+	LastFamilyDiscrepancy = 0;
+	int i;
+	for(i = 7; ; i--) {
+		ROM_NO[i] = 0;
+		if ( i == 0) break;
+	}
+}
+
 //Find the ROM addresses of 1-Wire devices
 //based from https://github.com/collin80/DS2480B/blob/master/DS2480B.cpp
-int findDevices(int fd)
+int findDevices(int fd, unsigned char *newAddr)
 {
-	char LastDeviceFlag = 0;
-	char LastDiscrepancy=0;
-	char LastFamilyDiscrepancy=0;
+
+	printf("%s","---- Searching for device ----\n");
 	unsigned char id_bit_number;
 	unsigned char last_zero, rom_byte_number, search_result;
-	unsigned char id_bit, cmp_id_bit;
-	unsigned char ROM_NO[100];
-
-	unsigned char newAddr[100];
 
 	unsigned char rom_byte_mask, search_direction;
 
@@ -269,7 +283,6 @@ int findDevices(int fd)
 	{
 		// 1-Wire reset
 		unsigned char res = sendCommand(fd,RESET);
-		printf("Reset = 0x%02x\n",res);
 		if (res != 0xcd)
 		{
 			// reset the search
@@ -279,8 +292,12 @@ int findDevices(int fd)
 			return FALSE;
 		}
 
+		writeData(fd,DATA_MODE);	//enter in Data mode
+
 		// issue the search command
-		writeData(fd, 0xF0);//write(0xF0); //send search command to DS18B20 units
+		sendCommand(fd, 0xF0); 		//send search command to DS18B20 units
+
+		writeData(fd,CMD_MODE);		//enter in Data mode
 
 		// loop to do the search
 		do
@@ -288,8 +305,6 @@ int findDevices(int fd)
 			// read a bit and its complement
 			id_bit = read_bit(fd);
 			cmp_id_bit = read_bit(fd);
-
-			printf("bitA = 0x%02x, bitB = 0x%02x\n",id_bit, cmp_id_bit);
 
 			// check for no devices on 1-wire
 			if ((id_bit == 1) && (cmp_id_bit == 1))
@@ -368,13 +383,104 @@ int findDevices(int fd)
 		search_result = FALSE;
 	}
 
-	printf("%s","new address = 0x");
-	for (int i = 0; i < 8; i++)
-	{
-		newAddr[i] = ROM_NO[i];
-		printf("%02x",newAddr[i]);
+	if(search_result){
+		printf("%s","New address found = 0x");
+		int i;
+		for ( i = 0; i < 8; i++)
+		{
+			newAddr[i] = ROM_NO[i];
+			printf("%02x",newAddr[i]);
+		}
+		printf("%s\n","");
+
+		if(LastDeviceFlag)
+		{
+			printf("%s","Last device found\n");
+		}
 	}
-	printf("%s\n","");
+	else
+	{
+		printf("%s","No device found\n");
+
+	}
+
 	return search_result;
+}
+
+//Function to help debug the temperature acquisition
+int printTemp(int fd, unsigned char * ROMaddress)
+{
+	unsigned char padData[SCRATCH_PAD_SIZE];
+	scratchPad *dataPad;
+
+	startTempConv(fd,ROMaddress);
+	if(readScratchPAD(fd, ROMaddress, padData))
+		return -1;
+
+	dataPad = (scratchPad*)padData;
+	printf("Temperature LSB = %02x, MSB = %02x, Celsius = %.3f\n",dataPad->tempLSB,dataPad->tempMSB,calculateTemp(dataPad));
+
+	return 0;
+}
+
+//Query Temperature from multiple devices
+int printMultipleTemp(int fd, unsigned char * ROMaddress, char devices, double *temperatures)
+{
+	unsigned char padData[SCRATCH_PAD_SIZE];
+	scratchPad *dataPad;
+
+	int i;
+	//	clock_t t;
+	//	t = clock();
+
+	for(i = 0; i < devices; i++)
+	{
+		startTempConv(fd, ROMaddress + ROM_ADDRESS_SIZE * i);
+	}
+	usleep(400 * 1000);
+
+	for(i = 0; i < devices; i++)
+	{
+		if(readScratchPAD(fd, ROMaddress + ROM_ADDRESS_SIZE * i, padData))
+			return -1;
+		dataPad = (scratchPad*)padData;
+		temperatures[i] = calculateTemp( dataPad );
+	}
+
+	//	t = clock() - t;
+	//	double time_taken = ( (double)t ) / CLOCKS_PER_SEC; // in seconds
+
+	return 0;
+}
+
+//pritns the temperatures on screen and into a CSV file
+int logTemperatures(double * temperatures, char devices)
+{
+	int i;
+	char *logFile = "TemperatureLog.csv";
+	FILE *fd = fopen(logFile, "a+");
+
+	time_t rawtime;
+	struct tm * timeinfo;
+
+	time ( &rawtime );
+	timeinfo = localtime ( &rawtime );
+	printf(    "%s,",strtok(asctime (timeinfo),"\n"));
+	fprintf(fd,"%s,",strtok(asctime (timeinfo),"\n"));
+
+	for(i = 0; i < devices - 1; i++)
+	{
+		printf(    "%.3f,",temperatures[i]);
+		fprintf(fd,"%.3f,",temperatures[i]);
+	}
+	printf(    "%.3f",temperatures[i]);
+	fprintf(fd,"%.3f",temperatures[i]);
+
+	printf(    "%s","\n");
+	fprintf(fd,"%s","\n");
+
+	fclose(fd);
+
+	return 0;
 }
 
